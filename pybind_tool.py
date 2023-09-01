@@ -1,12 +1,12 @@
-import os, json
+import os, json, sys, sysconfig
+from subprocess import Popen, PIPE
 from sysconfig import get_paths
-from pybind11 import get_include
 
+
+WIN = sys.platform.startswith("win32") and "mingw" not in sysconfig.get_platform()
+MACOS = sys.platform.startswith("darwin")
 
 PYTHON_INCLUDE_DIR = get_paths()['include']
-PYBIND_INCLUDE_DIRS = get_include()
-
-BASE_INCLUDE_DIRS = [PYTHON_INCLUDE_DIR, PYBIND_INCLUDE_DIRS]
 
 SETUP_TEMPLATE = """\
 from glob import glob
@@ -17,6 +17,7 @@ ext_modules = [
     Pybind11Extension(
         "%s",
         sorted(glob("*.cpp")),
+        cxx_std=%d
     ),
 ]
 
@@ -39,14 +40,14 @@ PYBIND11_MODULE(%s, m) {
 }
 """
 
-def add_setup_file(dir_name, module_name) -> int:
+def add_setup_file(dir_name, module_name, cxx_std=14) -> int:
     setup_path = os.path.join(dir_name, "setup.py")
     if os.path.exists(setup_path):
         print("ERROR - setup file already exist")
         return 1
 
     with open(setup_path, "w", encoding="utf-8") as f:
-        f.write(SETUP_TEMPLATE % module_name)
+        f.write(SETUP_TEMPLATE % (module_name, cxx_std))
     return 0
 
 def add_bind_cpp(dir_name, module_name) -> int:
@@ -81,22 +82,62 @@ def save_vscode_setting(dirname, setting:dict):
     with open(setting_path, "w", encoding="utf-8") as f:
         json.dump(setting, f, indent=4, ensure_ascii=False)
 
-def add_clangd_include(dirname, include_dirs):
-
+def add_clangd_flags(dirname, flags):
     setting = load_vscode_setting(dirname)
     if "clangd.fallbackFlags" not in setting:
         setting["clangd.fallbackFlags"] = []
-    flags = setting["clangd.fallbackFlags"]
+    fall_back_flags = setting["clangd.fallbackFlags"]
+    for f in flags:
+        if f not in fall_back_flags:
+            fall_back_flags.append(f)
+    save_vscode_setting(dirname, setting)    
+
+def add_clangd_include(dirname, include_dirs):
+    flags = []
     for include_dir in include_dirs:
         if f"-I{include_dir}" not in flags:
             flags.append(f"-I{include_dir}")
-    save_vscode_setting(dirname, setting)
+    add_clangd_flags(dirname, flags)
 
-def init_pybind(dirname, module_name, ext='clangd'):
+def build_setup(setup_path) -> int:
+    if not os.path.exists(setup_path):
+        print("ERROR - setup file not exist")
+        return 1
+    
+    cmd = ["python", setup_path, "build_ext", "--inplace"]
+    proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
+    if proc.wait() == 1:
+        out = proc.stdout.read().decode()
+        err = proc.stderr.read().decode()
+        print("ERROR - build setup fail, info:")
+        print(out)
+        print(err)
+        return 1
+    return 0
+
+def check_dylib(dirname):
+    dylib_suffix = []
+    if WIN:
+        dylib_suffix.append("pyd")
+    elif MACOS:
+        dylib_suffix.append("so")
+    else:
+        dylib_suffix.append("so")
+    
+    files = os.listdir(dirname)
+    for file in files:
+        suffix = file.rpartition(".")[-1]
+        if suffix in dylib_suffix:
+            return True
+    return False
+
+def init_pybind(dirname, module_name, cxx_std=14, ext='clangd'):
+    from pybind11 import get_include
     if not os.path.exists(dirname):
         os.makedirs(dirname)
     if ext == 'clangd':
-        add_clangd_include(dirname, BASE_INCLUDE_DIRS)
+        add_clangd_include(dirname, [PYTHON_INCLUDE_DIR, get_include()])
+        add_clangd_flags(dirname, [f"-std=c++{cxx_std}"])
     add_bind_cpp(dirname, module_name)
     add_setup_file(dirname, module_name)
 
