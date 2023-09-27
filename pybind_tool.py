@@ -457,7 +457,7 @@ def main():
     parser.add_argument('-o', '--out', dest='dirname', default='.',
                         help="output dir for cpp extension")
     parser.add_argument('-e', '--ext', dest='vscode_ext', default='clangd', choices=['clangd'])
-    parser.add_argument('--cuda', dest='cuda', default=False, type=bool,
+    parser.add_argument('--cuda', dest='cuda', action='store_true',
                         help='only in torch cpp extension, if build cuda ext')
 
     # parser.add_argument
