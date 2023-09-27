@@ -1,4 +1,5 @@
-import os, json, sys, sysconfig, inspect, shutil
+import os, json, sys, sysconfig, inspect, shutil, argparse
+from typing import Literal
 from subprocess import Popen, PIPE
 from sysconfig import get_paths
 
@@ -423,3 +424,48 @@ def init_torch_ext(dirname, module_name, cxx_std=17, ext='clangd', cuda=False):
     add_init_file(dirname, module_name)
 
 
+def init_dispatch(
+    module_name:str,
+    module_type:Literal["pybind", "torch"],
+    dirname:str,
+    cxx_std:int,
+    vscode_ext:Literal["clangd"],
+    cuda:bool
+) -> int:
+
+    if module_type == "pybind":
+        init_pybind(dirname, module_name, cxx_std=cxx_std, ext=vscode_ext)
+    elif module_type == "torch":
+        init_torch_ext(dirname, module_name, cxx_std, vscode_ext, cuda)
+    else:
+        print(f"ERROR - only support [pybind, torch_ext], actually {module_type}")
+        return 1
+    return 0
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='pybind_tool', 
+        description='simple stage for python pybind extension', 
+        epilog='Copyright(r), 2023'
+    )
+    parser.add_argument('module_name', nargs=1, help="module name for cpp extension")
+    parser.add_argument('-t', '--type', dest="module_type",
+                        choices=['pybind', 'torch'], default='pybind',
+                        help="module type for cpp extension, support pybind, torch")
+    parser.add_argument('-cxx_std', dest='cxx_std', type=int, default=14,
+                        help="cpp std")
+    parser.add_argument('-o', '--out', dest='dirname', default='.',
+                        help="output dir for cpp extension")
+    parser.add_argument('-e', '--ext', dest='vscode_ext', default='clangd', choices=['clangd'])
+    parser.add_argument('--cuda', dest='cuda', default=False, type=bool,
+                        help='only in torch cpp extension, if build cuda ext')
+
+    # parser.add_argument
+    args = parser.parse_args()
+    norm_args = {**args.__dict__}
+    norm_args['module_name'] = args.module_name[0]
+    init_dispatch(**norm_args)
+
+
+if __name__ == '__main__':
+    main()
